@@ -12,6 +12,7 @@ output: html_document
 ```{r, warning = FALSE, message = FALSE}
 
 library(dplyr)
+library(pls)
 
 ```
 
@@ -148,11 +149,11 @@ Les tests de Student sur les coefficients des composantes principales sont valid
 - Absence de multicolinéarité : Contrairement aux variables explicatives originelles qui présentent deux multicolinéarités (indicatrices de géologie et relation pluviométrie annuelle/mensuelles), les composantes principales sont indépendantes. Les variances des estimateurs des coefficients sont donc bien estimées, et les tests de Student ont leur interprétation habituelle.
 
 En conséquence, on peut tester individuellement la significativité de chaque composante et éliminer celles dont le coefficient n'est pas significativement différent de zéro (p-value > 0.05).
-
+o
 ```{r}
 
 # Récupérer les 3 premières composantes principales
-composantes_retenues <- acp$x[, 1:3]
+composantes_retenues <- acp$x[, 1:5]
 
 ```
 
@@ -163,7 +164,9 @@ data_regression <- data.frame(
   treedensity = treedensity,
   PC1 = composantes_retenues[, 1],
   PC2 = composantes_retenues[, 2],
-  PC3 = composantes_retenues[, 3]
+  PC3 = composantes_retenues[, 3],
+  PC4 = composantes_retenues[, 4],
+  PC5 = composantes_retenues[, 5]
 )
 
 ```
@@ -171,7 +174,7 @@ data_regression <- data.frame(
 ```{r}
 
 # Ajuster le modèle linéaire avec les 3 composantes
-modele_complet <- lm(treedensity ~ PC1 + PC2 + PC3, data = data_regression)
+modele_complet <- lm(treedensity ~ PC1 + PC2 + PC3 + PC4 + PC5, data = data_regression)
 
 # Afficher le résumé du modèle
 summary(modele_complet)
@@ -218,10 +221,598 @@ cat("Corrélation entre Y et Ŷ :", round(correlation_YYchap, 4), "\n")
 
 ```
 
+Le graphique des valeurs observées versus prédites révèle plusieurs problèmes importants :
 
-Retrouver les coefficients des variables originelles dans le prédicteur linéaire $\hat Y$.
+- La droite de régression (bleue) s'écarte nettement de la droite identité (rouge), ce qui indique un biais systématique dans les prédictions.
+- Le modèle sous-estime systématiquement les fortes densités : pour les parcelles avec Y > 30, les prédictions plafonnent autour de 25, alors qu'on observe des densités allant jusqu'à 70.
+- La dispersion des points autour de la droite est importante et semble augmenter avec Y (hétéroscédasticité), ce qui suggère une variance non constante des résidus.
+- Le R² de 0.204 confirme la faiblesse de l'ajustement : seuls 20% de la variabilité de la densité sont expliqués.
 
-Si besoin est, corriger la linéarité de la liaison en utilisant une transformation de type Log sur $Y$ qui laisse les zéros invariants.
+Ces observations suggèrent fortement qu'une transformation logarithmique de Y pourrait améliorer la linéarité de la relation et stabiliser la variance des résidus.
+
+*Retrouver les coefficients des variables originelles dans le prédicteur linéaire $\hat Y$.*
+
+```{r}
+
+# Les coefficients des composantes dans le modèle (sans l'intercept)
+
+coef_composantes <- coef(modele_complet)[-1]
+cat("Coefficients des composantes dans le modèle :\n")
+print(coef_composantes)
+
+```
+
+```{r}
+
+# La matrice de rotation de l'ACP pour les 3 premières composantes (donne les coefficients des variables originelles dans les composantes)
+
+rotation_matrix <- acp$rotation[, 1:5]
+
+```
+
+Formule : β_originels = Rotation × β_composantes
+Car Ŷ = β₁·PC1 + β₂·PC2 + β₃·PC3
+Et PCj = Σ(rotation[i,j] × X_i) donc on remplace
+
+```{r}
+
+# Calculer les coefficients des variables originelles
+coef_originels <- rotation_matrix %*% coef_composantes
+
+# Créer un data frame pour une meilleure visualisation
+coef_df <- data.frame(
+  Variable = rownames(coef_originels),
+  Coefficient = as.vector(coef_originels)
+)
+
+# Trier par valeur absolue décroissante pour voir les plus importantes
+coef_df <- coef_df[order(abs(coef_df$Coefficient), decreasing = TRUE), ]
+
+# Afficher tous les coefficients
+print(coef_df, row.names = FALSE)
+
+```
+
+```{r}
+
+# Afficher les 10 variables les plus influentes
+print(head(coef_df, 10), row.names = FALSE)
+
+```
+
+Comme les coefficients sont sur les variables standardisées (centrées-réduites), ils sont directement comparables entre eux en termes d'importance relative : 
+
+- Un coefficient positif indique que la densité augmente avec la variable.
+- Un coefficient négatif indique que la densité diminue avec la variable.
+
+Ainsi, L'analyse des coefficients des variables originelles révèle que :
+
+- Variables pluviométriques dominantes : Les pluviométries de juillet (pluvio_7) et novembre (pluvio_11), ainsi que leurs carrés, ont les effets  les plus forts (coefficients ≈ 0.25 et -0.24), qu'ils soient positifs ou négatifs. Cela suggère que les pluies estivales favorisent la densité arborée et que de fortes pluies en fin d'année sont associées à de plus faibles densités d'arbres. Cela est plutôt logique car des parcelles avec de la pluie en juillet indiquent qu'il n'y a pas ou peu de sécheresse dans cette zone, ce qui est bénéfique pour les plantations.
+- Effet positif de la longitude : La longitude et son carré ont des coefficients positifs importants (≈0.23), indiquant que la densité augmente en allant vers l'est du bassin du Congo.
+- Relation non-linéaire : La présence des termes au carré parmi les variables importantes confirme l'existence de relations non-linéaires entre les variables géographiques et la densité.
+
+*Si besoin est, corriger la linéarité de la liaison en utilisant une transformation de type Log sur $Y$ qui laisse les zéros invariants.*
+
+```{r}
+
+# Vérifier s'il y a des zéros ou valeurs négatives dans treedensity
+cat("=== DIAGNOSTIC DE LA VARIABLE Y ===\n")
+cat("Valeur minimale :", min(treedensity), "\n")
+cat("Valeur maximale :", max(treedensity), "\n\n")
+
+# Appliquer la transformation log(Y + 1) qui préserve les zéros
+# log(0 + 1) = 0, donc les zéros restent à 0
+treedensity_log <- log(treedensity + 1)
+
+cat("Après transformation log(Y+1) :\n")
+cat("Valeur minimale :", min(treedensity_log), "\n")
+cat("Valeur maximale :", max(treedensity_log), "\n\n")
+
+# Refaire la régression avec Y transformé
+data_regression_log <- data.frame(
+  treedensity_log = treedensity_log,
+  PC1 = composantes_retenues[, 1],
+  PC2 = composantes_retenues[, 2],
+  PC3 = composantes_retenues[, 3],
+  PC4 = composantes_retenues[, 4],
+  PC5 = composantes_retenues[, 5]
+)
+
+modele_log <- lm(treedensity_log ~ PC1 + PC2 + PC3 + PC4 + PC5, data = data_regression_log)
+
+# Afficher le résumé du modèle log
+cat("=== MODÈLE AVEC TRANSFORMATION LOG(Y+1) ===\n\n")
+summary(modele_log)
+
+# Comparer les deux modèles
+cat("\n=== COMPARAISON DES DEUX MODÈLES ===\n")
+cat("Modèle original    - R² =", round(summary(modele_complet)$r.squared, 4), "\n")
+cat("Modèle log(Y+1)    - R² =", round(summary(modele_log)$r.squared, 4), "\n")
+cat("Amélioration du R² :", 
+    round(summary(modele_log)$r.squared - summary(modele_complet)$r.squared, 4), "\n\n")
+
+```
+
+Numériquement, nous pouvons voir que la transformation logarithmique log(Y+1) améliore la qualité du modèle :
+
+Amélioration du R² : Le R² passe de 0.204 à 0.257, soit une augmentation de 5.26 points de pourcentage. Le modèle explique maintenant environ 25.7% de la variabilité de log(densité+1).
+Toutes les composantes restent significatives : PC1, PC2 et PC3 sont toutes hautement significatives (p-value < 2e-16 pour PC1 et PC2, p-value = 2.29e-08 pour PC3).
+Réduction de l'erreur résiduelle : L'erreur standard résiduelle passe de 7.376 à 0.4124 (sur l'échelle logarithmique), ce qui suggère une meilleure homogénéité des résidus.
+Conservation du sens des effets : Les signes des coefficients restent identiques (PC1 et PC2 positifs, PC3 négatif), ce qui indique que la transformation n'a pas modifié l'interprétation des relations.
+
+La transformation log(Y+1) est donc retenue pour la suite de l'analyse, car elle améliore la linéarité de la relation et stabilise la variance des résidus.
+
+Maintenant, on va comparer visuellement les résultats.
+
+```{r}
+
+# Comparaison visuelle des deux modèles
+
+# Préparer les graphiques côte à côte
+par(mfrow = c(1, 2))
+
+# GRAPHIQUE 1 : Modèle original
+Y <- treedensity
+Y_chapeau <- fitted(modele_complet)
+
+plot(Y, Y_chapeau, 
+     xlab = "Densité observée (Y)", 
+     ylab = "Densité prédite (Ŷ)",
+     main = paste0("Modèle original\nR² = ", round(summary(modele_complet)$r.squared, 3)),
+     pch = 20,
+     col = rgb(0, 0, 1, 0.5),
+     cex.main = 0.9)
+
+abline(a = 0, b = 1, col = "red", lwd = 2)
+abline(lm(Y_chapeau ~ Y), col = "blue", lty = 2, lwd = 2)
+
+# GRAPHIQUE 2 : Modèle avec log
+Y_log <- treedensity_log
+Y_chapeau_log <- fitted(modele_log)
+
+plot(Y_log, Y_chapeau_log, 
+     xlab = "log(Densité + 1) observé", 
+     ylab = "log(Densité + 1) prédit",
+     main = paste0("Modèle log(Y+1)\nR² = ", round(summary(modele_log)$r.squared, 3)),
+     pch = 20,
+     col = rgb(0, 0.6, 0, 0.5),
+     cex.main = 0.9)
+
+abline(a = 0, b = 1, col = "red", lwd = 2)
+abline(lm(Y_chapeau_log ~ Y_log), col = "darkgreen", lty = 2, lwd = 2)
+
+# Réinitialiser les paramètres graphiques
+par(mfrow = c(1, 1))
+
+# Calculer les corrélations pour comparer
+cor_original <- cor(Y, Y_chapeau)
+cor_log <- cor(Y_log, Y_chapeau_log)
+
+cat("\n=== CORRÉLATIONS Y vs Ŷ ===\n")
+cat("Modèle original :", round(cor_original, 4), "\n")
+cat("Modèle log      :", round(cor_log, 4), "\n")
+
+```
+
+Un peu mieux maix toujours pas top.
+
+## 3. Seconde régression sur composantes principales
+
+On partitionne les variables explicatives en photosynth!se (EVI) et géograhie (tout les reste).
+
+```{r}
+
+# === THÈME GÉOGRAPHIE ===
+# Variables géographiques quantitatives + leurs carrés + indicatrices géologie
+var_geo <- bind_cols(
+  data %>% select(lat, lon, altitude, pluvio_yr, num_range("pluvio_", 1:12)),  # Variables géo
+  var_geo_carre,                                                               # Leurs carrés
+  as.data.frame(geo_indic)                                                     # Indicatrices geology
+)
+
+cat("=== THÈME GÉOGRAPHIE ===\n")
+cat("Nombre de variables :", ncol(var_geo), "\n")
+cat("Variables :", colnames(var_geo), "\n\n")
+
+# === THÈME PHOTOSYNTHÈSE ===
+# Tous les indices EVI
+var_photo <- data %>% select(num_range("evi_", 1:23))
+
+cat("=== THÈME PHOTOSYNTHÈSE ===\n")
+cat("Nombre de variables :", ncol(var_photo), "\n")
+cat("Variables :", colnames(var_photo), "\n\n")
+
+```
+
+*a) Réaliser une ACP réduite globale des variables explicatives. Retenir les composantes qui ne sont pas du bruit.*
+
+```{r}
+
+# === ACP THÈME GÉOGRAPHIE ===
+
+# ACP réduite sur les variables géographiques
+acp_geo <- prcomp(var_geo, scale. = TRUE, center = TRUE)
+
+# Résumé de l'ACP géographie
+cat("=== ACP THÈME GÉOGRAPHIE ===\n\n")
+summary(acp_geo)
+
+# Variance expliquée par composante
+variance_geo <- acp_geo$sdev^2 / sum(acp_geo$sdev^2) * 100
+
+# Graphique de la variance expliquée
+barplot(variance_geo[1:15], 
+        names.arg = 1:15,
+        xlab = "Composante principale", 
+        ylab = "% de variance expliquée",
+        main = "ACP Géographie - Variance expliquée",
+        col = "steelblue")
+
+# Variance cumulée
+variance_cum_geo <- cumsum(variance_geo)
+
+# Tableau récapitulatif
+recap_geo <- data.frame(
+  Composante = 1:length(variance_geo),
+  Variance = acp_geo$sdev^2,
+  Variance_pct = variance_geo,
+  Variance_cum = variance_cum_geo
+)
+
+cat("\n")
+print(head(recap_geo, 10))
+
+cat("\n=== CHOIX DU NOMBRE DE COMPOSANTES GÉOGRAPHIE ===\n")
+cat("Regardez le graphique et le tableau pour décider combien de composantes retenir.\n")
+cat("Critères : saut dans la variance expliquée, variance cumulée > 70-80%\n\n")
+
+```
+
+La composante 1 explique beaucoup de variance par rapport à celle d'avant.
+
+```{r}
+
+# === ACP THÈME PHOTOSYNTHÈSE ===
+
+# ACP réduite sur les variables de photosynthèse (EVI)
+acp_photo <- prcomp(var_photo, scale. = TRUE, center = TRUE)
+
+# Résumé de l'ACP photosynthèse
+cat("=== ACP THÈME PHOTOSYNTHÈSE ===\n\n")
+summary(acp_photo)
+
+# Variance expliquée par composante
+variance_photo <- acp_photo$sdev^2 / sum(acp_photo$sdev^2) * 100
+
+# Graphique de la variance expliquée
+barplot(variance_photo[1:15], 
+        names.arg = 1:15,
+        xlab = "Composante principale", 
+        ylab = "% de variance expliquée",
+        main = "ACP Photosynthèse - Variance expliquée",
+        col = "darkgreen")
+
+# Variance cumulée
+variance_cum_photo <- cumsum(variance_photo)
+
+# Tableau récapitulatif
+recap_photo <- data.frame(
+  Composante = 1:length(variance_photo),
+  Variance = acp_photo$sdev^2,
+  Variance_pct = variance_photo,
+  Variance_cum = variance_cum_photo
+)
+
+cat("\n")
+print(head(recap_photo, 10))
+
+cat("\n=== CHOIX DU NOMBRE DE COMPOSANTES PHOTOSYNTHÈSE ===\n")
+cat("Regardez le graphique et le tableau pour décider combien de composantes retenir.\n\n")
+
+```
+
+3 composantes principales de chaque
+
+*b) Modéliser la densité à partir des composantes retenues. Vous pourrez éliminer les composantes qui n'ont pas de rôle statistiquement significatif (justifiez la validité des tests de Student ici). Donner le R2 du modèle obtenu. Construire le graphe d'abscisse Y et d'ordonnée ̂Y , et commenter.*
+
+```{r}
+
+# === 3.b) MODÉLISATION AVEC LES COMPOSANTES DES DEUX THÈMES ===
+
+# Définir le nombre de composantes retenues pour chaque thème
+n_comp_geo <- 3    # 3 composantes pour Géographie
+n_comp_photo <- 3  # 3 composantes pour Photosynthèse
+
+# Récupérer les composantes principales de chaque ACP
+comp_geo <- acp_geo$x[, 1:n_comp_geo]
+comp_photo <- acp_photo$x[, 1:n_comp_photo]
+
+# Créer un data frame avec Y transformé et TOUTES les composantes
+# On réunit les composantes des deux thèmes
+data_regression_themes <- data.frame(
+  treedensity_log = treedensity_log,  # On utilise la transformation log(Y+1)
+  # Composantes Géographie
+  PC_geo1 = comp_geo[, 1],
+  PC_geo2 = comp_geo[, 2],
+  PC_geo3 = comp_geo[, 3],
+  # Composantes Photosynthèse
+  PC_photo1 = comp_photo[, 1],
+  PC_photo2 = comp_photo[, 2],
+  PC_photo3 = comp_photo[, 3]
+)
+
+# Ajuster le modèle linéaire avec toutes les composantes
+modele_themes <- lm(treedensity_log ~ PC_geo1 + PC_geo2 + PC_geo3 + 
+                                       PC_photo1 + PC_photo2 + PC_photo3, 
+                    data = data_regression_themes)
+
+# Afficher le résumé du modèle
+cat("=== MODÈLE AVEC COMPOSANTES PAR THÈMES ===\n\n")
+summary(modele_themes)
+
+# Comparer avec le modèle de la question 2
+cat("\n=== COMPARAISON DES MODÈLES ===\n")
+cat("Q2 - ACP globale     : R² =", round(summary(modele_log)$r.squared, 4), "\n")
+cat("Q3 - ACP par thèmes  : R² =", round(summary(modele_themes)$r.squared, 4), "\n")
+cat("Différence           :", 
+    round(summary(modele_themes)$r.squared - summary(modele_log)$r.squared, 4), "\n\n")
+
+```
+
+Toutes les six composantes (3 de Géographie + 3 de Photosynthèse) sont statistiquement significatives dans le modèle. Les trois composantes géographiques sont très hautement significatives (p-value < 0.001), tout comme deux des trois composantes de photosynthèse (PC_photo2 et PC_photo3). La première composante de photosynthèse (PC_photo1) est significative au seuil de 5% (p-value = 0.030).
+
+Le R² du modèle est de 0.2741, ce qui représente une amélioration de 0.0097 points par rapport au modèle de la question 2 (R² = 0.2644). Cette amélioration, bien que modeste, montre que la séparation en thèmes permet de mieux structurer l'information : les variables géographiques et de photosynthèse capturent des aspects complémentaires de la densité arborée.
+
+Les tests de Student sont valides ici pour les mêmes raisons qu'en question 2 : les composantes principales issues de chaque ACP sont orthogonales au sein de leur thème, et les deux thèmes sont analysés séparément avant d'être réunis, ce qui élimine les problèmes de multicolinéarité.
+
+```{r}
+
+# Construire le graphe Y observé vs Y prédit
+Y_log <- treedensity_log
+Y_chapeau_themes <- fitted(modele_themes)
+
+# Créer le graphique
+plot(Y_log, Y_chapeau_themes, 
+     xlab = "log(Densité + 1) observé", 
+     ylab = "log(Densité + 1) prédit",
+     main = paste0("Modèle ACP par thèmes\nR² = ", round(summary(modele_themes)$r.squared, 4)),
+     pch = 20,
+     col = rgb(0.8, 0.2, 0, 0.5),
+     cex.main = 0.9)
+
+# Ajouter la droite identité (y = x)
+abline(a = 0, b = 1, col = "red", lwd = 2)
+
+# Ajouter la droite de régression
+abline(lm(Y_chapeau_themes ~ Y_log), col = "darkorange", lty = 2, lwd = 2)
+
+legend("topleft", 
+       legend = c("Droite identité (y=x)", "Droite de régression"),
+       col = c("red", "darkorange"), 
+       lty = c(1, 2), 
+       lwd = 2,
+       cex = 0.8)
+
+# Calculer la corrélation
+correlation_themes <- cor(Y_log, Y_chapeau_themes)
+cat("\nCorrélation entre Y et Ŷ :", round(correlation_themes, 4), "\n")
+
+```
+
+Le graphique des valeurs observées versus prédites montre une amélioration par rapport au modèle de la question 2 :
+
+- La droite de régression (orange) se rapproche légèrement de la droite identité (rouge), bien qu'un écart persiste encore.
+- Les points sont mieux alignés autour de la droite de régression, ce qui indique une meilleure qualité de prédiction.
+- La dispersion reste importante, mais elle est plus homogène sur toute la plage de valeurs, ce qui suggère que la transformation logarithmique a bien corrigé l'hétéroscédasticité.
+- Le modèle prédit mieux les densités intermédiaires (log(Y+1) entre 2 et 3), mais sous-estime encore légèrement les très fortes densités.
+
+L'amélioration du R² (+1 point) se traduit visuellement par un nuage de points légèrement plus resserré autour de la droite de régression. La séparation en thèmes Géographie/Photosynthèse apporte donc un gain modeste mais réel.
+
+*c) Retrouver les coefficients des variables originelles dans le prédicteur linéaire Y chapeau.*
+
+```{r}
+
+# === 3.c) COEFFICIENTS DES VARIABLES ORIGINELLES ===
+
+cat("\n=== QUESTION 3.c - COEFFICIENTS DES VARIABLES ORIGINELLES ===\n\n")
+
+# Récupérer les coefficients des composantes dans le modèle (sans l'intercept)
+coef_modele_themes <- coef(modele_themes)[-1]  
+cat("Coefficients des composantes dans le modèle :\n")
+print(coef_modele_themes)
+
+# Matrices de rotation (loadings) pour chaque thème
+rotation_geo <- acp_geo$rotation[, 1:n_comp_geo]
+rotation_photo <- acp_photo$rotation[, 1:n_comp_photo]
+
+# Calculer les coefficients pour les variables GÉOGRAPHIE originales
+# Formule : β_originaux = Rotation × β_composantes
+coef_geo_originaux <- rotation_geo %*% coef_modele_themes[1:n_comp_geo]
+
+# Calculer les coefficients pour les variables PHOTOSYNTHÈSE originales
+coef_photo_originaux <- rotation_photo %*% coef_modele_themes[(n_comp_geo+1):(n_comp_geo+n_comp_photo)]
+
+# Créer des data frames pour une meilleure visualisation
+coef_geo_df <- data.frame(
+  Variable = rownames(coef_geo_originaux),
+  Coefficient = as.vector(coef_geo_originaux)
+)
+
+coef_photo_df <- data.frame(
+  Variable = rownames(coef_photo_originaux),
+  Coefficient = as.vector(coef_photo_originaux)
+)
+
+# Trier par valeur absolue décroissante
+coef_geo_df <- coef_geo_df[order(abs(coef_geo_df$Coefficient), decreasing = TRUE), ]
+coef_photo_df <- coef_photo_df[order(abs(coef_photo_df$Coefficient), decreasing = TRUE), ]
+
+cat("\n=== TOP 10 VARIABLES GÉOGRAPHIE LES PLUS INFLUENTES ===\n")
+print(head(coef_geo_df, 10), row.names = FALSE)
+
+cat("\n=== TOP 10 VARIABLES PHOTOSYNTHÈSE LES PLUS INFLUENTES ===\n")
+print(head(coef_photo_df, 10), row.names = FALSE)
+
+# Combiner tous les coefficients pour la synthèse finale (Question 6)
+coef_themes_tous <- rbind(
+  data.frame(Variable = coef_geo_df$Variable, Coefficient = coef_geo_df$Coefficient, Theme = "Géographie"),
+  data.frame(Variable = coef_photo_df$Variable, Coefficient = coef_photo_df$Coefficient, Theme = "Photosynthèse")
+)
+
+cat("\n=== VARIABLES LES PLUS INFLUENTES (TOUS THÈMES CONFONDUS) ===\n")
+coef_themes_tous_sorted <- coef_themes_tous[order(abs(coef_themes_tous$Coefficient), decreasing = TRUE), ]
+print(head(coef_themes_tous_sorted, 15), row.names = FALSE)
+
+```
+
+L'analyse des coefficients des variables originelles révèle des patterns intéressants :
+
+**Variables géographiques les plus influentes :**
+- **Longitude et son carré (lon, lon^2)** : coefficients positifs importants (~0.019), confirmant que la densité augmente vers l'est du bassin du Congo. La présence du terme quadratique suggère une relation non-linéaire.
+- **Pluviométries mensuelles** : juillet (pluvio_7, +0.0165) a un effet positif, tandis qu'octobre et novembre (pluvio_10, pluvio_11, ~-0.016) ont des effets négatifs. Cela indique que les pluies d'été favorisent la densité, mais qu'un excès de pluie en fin d'année peut être défavorable.
+- **Termes quadratiques des pluviométries** : leur présence confirme des relations non-linéaires entre climat et densité arborée.
+
+**Variables de photosynthèse les plus influentes :**
+- **EVI de fin d'année (evi_19 à evi_23)** : coefficients négatifs forts (~-0.022 à -0.025), suggérant qu'une forte activité photosynthétique en fin d'année est associée à de plus faibles densités. Cela pourrait refléter une concurrence accrue ou des conditions écologiques particulières.
+- **EVI de mi-année (evi_11 à evi_13)** : coefficients positifs (~0.016 à 0.020), indiquant qu'une bonne activité photosynthétique en milieu d'année favorise la densité.
+
+**Synthèse globale (TOP 15) :**
+Les variables de photosynthèse (EVI) dominent le classement en valeur absolue, ce qui suggère que l'activité photosynthétique est un prédicteur plus fort de la densité que les variables géographiques seules. Cependant, les variables géographiques (longitude, pluviométries) restent importantes et apportent une information complémentaire, ce qui justifie l'approche par thèmes.
+
+*d) Si besoin est, corriger la linéarité de la liaison en utilisant une transformation de type Log sur Y qui laisse les zéros invariants.*
+
+```{r}
+
+# === 3.d) TRANSFORMATION LOGARITHMIQUE ===
+
+cat("\n=== QUESTION 3.d - TRANSFORMATION LOGARITHMIQUE ===\n\n")
+
+cat("Comme pour la question 2, nous avons utilisé la transformation log(Y+1)\n")
+cat("sur la variable dépendante dès le départ de la question 3.\n\n")
+
+cat("Raisons de cette transformation :\n")
+cat("1. Correction de la linéarité : améliore la relation linéaire entre Y et les prédicteurs\n")
+cat("2. Stabilisation de la variance : réduit l'hétéroscédasticité des résidus\n")
+cat("3. Préservation des zéros : log(0+1) = 0, donc les parcelles sans arbres restent à 0\n\n")
+
+cat("Résultats avec transformation log(Y+1) :\n")
+cat("- R² = ", round(summary(modele_themes)$r.squared, 4), "\n")
+cat("- Erreur standard résiduelle = ", round(summary(modele_themes)$sigma, 4), "\n\n")
+
+cat("La transformation logarithmique est donc retenue pour ce modèle.\n")
+
+```
+
+**Synthèse de la question 3 :**
+
+L'approche par ACP séparées sur les thèmes Géographie et Photosynthèse apporte une amélioration modeste mais significative par rapport à l'ACP globale :
+- Le R² passe de 0.2644 à 0.2741 (+1 point)
+- Les 6 composantes (3 par thème) sont toutes statistiquement significatives
+- La séparation thématique permet de mieux structurer l'information et de distinguer les contributions respectives de la géographie et de la photosynthèse
+- Les variables de photosynthèse (EVI) apparaissent comme les prédicteurs les plus forts en valeur absolue
+- La transformation log(Y+1) reste nécessaire pour assurer la linéarité et l'homoscédasticité
+
+Cette méthode constitue un compromis intéressant entre l'ACP globale (qui mélange tous les types de variables) et une approche totalement supervisée (comme la régression PLS que nous verrons en question 4).
+
+## Question 4. Régression PLS
+
+*a) Utiliser la régression PLS pour modéliser au mieux la densité (ou sa transformation). Vous utiliserez la validation croisée (de type Leave K out ou K-fold) pour déterminer le meilleur nombre de composantes.*
+
+```{r}
+
+# Préparer les données : X = var_explicatives, Y = treedensity_log
+# Important : on utilise la transformation log(Y+1)
+X <- as.matrix(var_explicatives)
+Y <- treedensity_log
+
+# Régression PLS avec validation croisée (10-fold cross-validation)
+# On teste jusqu'à 20 composantes maximum
+set.seed(123)  # Pour la reproductibilité
+pls_model <- plsr(Y ~ X, 
+                  ncomp = 20,              # Nombre max de composantes à tester
+                  scale = TRUE,             # Centrer et réduire les variables
+                  validation = "CV",        # Validation croisée
+                  segments = 10)            # 10-fold CV
+
+# Résumé du modèle
+cat("\n=== RÉSUMÉ DU MODÈLE PLS ===\n")
+summary(pls_model)
+
+# Afficher les erreurs de prédiction (PRESS) pour chaque nombre de composantes
+cat("\n=== ERREUR DE VALIDATION CROISÉE (PRESS) ===\n")
+press_values <- pls_model$validation$PRESS
+print(data.frame(
+  Composantes = 0:20,
+  PRESS = press_values
+))
+
+# Graphique des erreurs de validation croisée
+par(mfrow = c(1, 2))
+
+# Graphique 1 : PRESS en fonction du nombre de composantes
+plot(0:20, press_values, 
+     type = "b", 
+     xlab = "Nombre de composantes", 
+     ylab = "PRESS (erreur de prédiction)",
+     main = "Validation croisée PLS",
+     col = "blue",
+     pch = 19)
+grid()
+
+# Graphique 2 : R² en fonction du nombre de composantes
+r2_values <- R2(pls_model)$val
+plot(1:20, r2_values[2, 1, ],  # R² de validation croisée
+     type = "b",
+     xlab = "Nombre de composantes",
+     ylab = "R² (validation croisée)",
+     main = "R² en fonction du nombre de composantes",
+     col = "darkgreen",
+     pch = 19)
+grid()
+
+par(mfrow = c(1, 1))
+
+# Trouver le nombre optimal de composantes (minimum de PRESS)
+optimal_ncomp <- which.min(press_values) - 1  # -1 car l'index commence à 0
+cat("\n=== NOMBRE OPTIMAL DE COMPOSANTES ===\n")
+cat("Nombre de composantes minimisant PRESS :", optimal_ncomp, "\n")
+cat("PRESS minimal :", min(press_values), "\n\n")
+
+# Ajuster le modèle final avec le nombre optimal de composantes
+pls_final <- plsr(Y ~ X, 
+                  ncomp = optimal_ncomp,
+                  scale = TRUE)
+
+# Résumé du modèle final
+cat("\n=== MODÈLE PLS FINAL ===\n")
+cat("Nombre de composantes retenues :", optimal_ncomp, "\n")
+summary(pls_final)
+
+# Calculer le R² du modèle final
+Y_pred_pls <- predict(pls_final, ncomp = optimal_ncomp)
+r2_pls <- cor(Y, Y_pred_pls)^2
+cat("\nR² du modèle PLS final :", round(r2_pls, 4), "\n")
+
+```
+
+
+*b) Tenter au mieux d'interpréter les composantes retenues, et les plans qu'elles engendrent, exactement comme pour une ACP réduite.*
+
+*c) Retrouver les coefficients des variables (et interactions) originelles dans le prédicteur linéaire ̂ Y*
+
+*d) Comparer l'ajustement et les coefficients du modèle obtenu avec ceux des régressions sur composantes principales (on prêtera notamment attention aux signes de ces coefficients).*
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
