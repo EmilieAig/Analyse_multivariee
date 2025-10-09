@@ -1,1 +1,6 @@
+# Fichiers systèmes macOS
 .DS_Store
+
+# Fichiers R
+.Rhistory
+.RData
