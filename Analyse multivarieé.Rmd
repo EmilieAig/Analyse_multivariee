@@ -1,0 +1,240 @@
+---
+title: "Analyse multivariée"
+author: "AIGOIN Emilie"
+date: "2025-10-05"
+output: html_document
+---
+
+# Mise en place des données
+
+### Chargement des packages nécessaires
+
+```{r, warning = FALSE, message = FALSE}
+
+library(dplyr)
+
+```
+
+### Ouvrir le fichier contenant le jeu de données
+
+```{r, warning=FALSE}
+
+# Ouvrir le fichier en précisant les séparateurs
+data <- read.csv("Datagenus.csv", sep = ";", dec = ",", header = TRUE)
+
+# Transform all character columns into numerical values
+data <- data %>% mutate_if(is.character,~ as.numeric(.))
+
+# Enlever la colonne forest
+data <- data %>% select(-forest)
+                          
+```
+
+### Mettre en place les sous jeux de données qui vont nous servir pour notre analyse
+
+```{r}
+
+# Données qui contiennent uniquement les variables d'espèces
+data_gen <- data %>% select(num_range("gen", 1:27))
+
+```
+
+# Question 1.
+
+Nous allons sommer les abondances des 27 espèces et diviser cette somme par la surface de chaque parcelle. On obtient ainsi la densité de peuplement arboré sur la parcelle.
+
+```{r}
+
+treedensity <- rowSums(data_gen) / data$surface
+
+```
+
+Nous continuons en calculant les carrés des variables géographiques quantitatives que sont la latitude, la longitude, l'altitude, la pluviométrie annuelle et les pluviométreis mensuelles.
+
+```{r}
+
+# Calculer les carrés des variables géographiques
+var_geo_quanti <- c("lat", "lon", "altitude", "pluvio_yr", paste0("pluvio_", 1:12))
+var_geo_carre <- data[, var_geo_quanti]^2
+colnames(var_geo_carre) <- paste0(var_geo_quanti, "^2")
+
+```
+
+Puis nous formons les indicatrices de la variable geology. 
+
+```{r}
+
+# Créer les indicatrices de geology
+data$geology <- as.factor(data$geology)
+geo_indic <- model.matrix(~ geology - 1, data = data)
+
+```
+
+On voit qu'il n'y a pas de type 4 dans la colonne géologie.
+
+Nous regroupons le tout en un ensemble de variables explicatives constitué des :
+
+- Variables géographiques quantitatives.
+- De leurs carrés.
+- Des indicatrices de la variable geology.
+- Des EVI.
+
+```{r}
+
+# Regrouper toutes les variables explicatives
+var_explicatives <- bind_cols(
+  data %>% select(lat, lon, altitude, pluvio_yr, num_range("pluvio_", 1:12)),  # Variables géographiques
+  var_geo_carre,                                                               # Leurs carrés
+  as.data.frame(geo_indic),                                                    # Indicatrices geology
+  data %>% select(num_range("evi_", 1:23))                                     # EVI
+)
+
+```
+
+Pour finir cette question, nous allons faire l'inventaire théorique de toutes les multi-colinéarités (combinaisons linéaires de variables qui s'annulent) présentées par l'ensemble des variables explicatives.
+
+L'ensemble des variables explicatives présente deux multi-colinéarités certaines :
+
+- Variables indicatrices de la géologie : les six indicatrices créées à partir de la variable geology vérifient la relation : $$ \text{geology}_1 + \text{geology}_2 + \text{geology}_3 + \text{geology}_4 + \text{geology}_5 + \text{geology}_6 = 1 $$ Cette égalité traduit le fait que chaque observation appartient à exactement une catégorie géologique. Donc, si on connaît 5/6 des variables, on peut forcément connaître les valeurs de la dernière.
+- Pluviométrie annuelle et mensuelles : la pluviométrie annuelle `pluvio_yr` correspond à la somme des pluviométries mensuelles : $$ \text{pluvio_year} = \sum_{i=1}^{12} \text{pluvio}_i$$
+Cette relation induit une dépendance linéaire entre ces treize variables.
+
+Donc, l'ensemble des variables explicatives comporte deux combinaisons linéaires qui s'annulent, réduisant de deux unités le rang de la matrice des variables explicatives.
+
+# Question 2.
+
+*Réaliser une ACP réduite globale des variables explicatives. Retenir les composantes qui ne sont pas du bruit.*
+
+```{r}
+
+# ACP réduite (variables centrées et réduites)
+acp <- prcomp(var_explicatives, scale. = TRUE, center = TRUE)
+
+# Résumé de l'ACP
+summary(acp)
+
+# Variance expliquée par chaque composante
+variance_expliquee <- acp$sdev^2 / sum(acp$sdev^2) * 100
+
+# Afficher les variances expliquées
+barplot(variance_expliquee[1:20], 
+        names.arg = 1:20,
+        xlab = "Composante principale", 
+        ylab = "% de variance expliquée",
+        main = "Variance expliquée par les composantes principales")
+
+# Variance cumulée
+variance_cumulee <- cumsum(variance_expliquee)
+
+# Créer un tableau récapitulatif
+recap_acp <- data.frame(
+  Composante = 1:ncol(var_explicatives),
+  Variance = acp$sdev^2,
+  Variance_pct = variance_expliquee,
+  Variance_cum = variance_cumulee
+)
+
+# Afficher les premières composantes
+head(recap_acp, 20)
+
+```
+
+On choisit 3 composantes : la première expliuque 34% de la variance ce qui est assez bien mais pas assez pour pouvoir faire des analyses. On voit que la deuxième et la troisième sont entre 15 et 18% d'explication. Cependant, à partir de la quatrième on voit qu'il y a un gros écart et on peut considérer que les composantes suivantes sont du bruit. De plus, on voit que la variance cumulées quand on prend les trois premières composantes est de 68% ce qui est correct.
+
+*Modéliser la densité à partir des composantes retenues. Vous pourrez éliminer les composantes qui n'ont pas de rôle statistiquement significatif (justifiez la validité des tests de Student ici). Donner le $R^2$ du modèle obtenu.*
+
+Les tests de Student sur les coefficients des composantes principales sont valides pour deux raisons essentielles :
+- Orthogonalité des composantes principales : Par construction de l'ACP, les composantes principales sont orthogonales entre elles. Cela signifie que la matrice X'X (avec X est la matrice des composantes) est diagonale. Cette orthogonalité élimine les problèmes de multicolinéarité qui invalideraient les tests de Student dans une régression classique sur les variables originelles.
+- Absence de multicolinéarité : Contrairement aux variables explicatives originelles qui présentent deux multicolinéarités (indicatrices de géologie et relation pluviométrie annuelle/mensuelles), les composantes principales sont indépendantes. Les variances des estimateurs des coefficients sont donc bien estimées, et les tests de Student ont leur interprétation habituelle.
+
+En conséquence, on peut tester individuellement la significativité de chaque composante et éliminer celles dont le coefficient n'est pas significativement différent de zéro (p-value > 0.05).
+
+```{r}
+
+# Récupérer les 3 premières composantes principales
+composantes_retenues <- acp$x[, 1:3]
+
+```
+
+```{r}
+
+# Créer un data frame avec Y et les composantes
+data_regression <- data.frame(
+  treedensity = treedensity,
+  PC1 = composantes_retenues[, 1],
+  PC2 = composantes_retenues[, 2],
+  PC3 = composantes_retenues[, 3]
+)
+
+```
+
+```{r}
+
+# Ajuster le modèle linéaire avec les 3 composantes
+modele_complet <- lm(treedensity ~ PC1 + PC2 + PC3, data = data_regression)
+
+# Afficher le résumé du modèle
+summary(modele_complet)
+
+```
+
+On voit que les trois composantes sont très significatives dans le modèle, elle correspondent donc bien à des variables d'information et pas des variables de bruit.
+
+Si on teste avec 5 composantes, elles sont significatives mais la dernière à la limite. mais ça n'augmente que de très peu le R^2
+
+Le R^2 du modèle est de $0,204$, ce qui veut dire que seulement $20\%$ de la variabilité de la densité est expliquée par les trois premières composantes principales, cela n'est pas très bon.
+
+*Construire le graphe d'abscisse $Y$ et d'ordonnée $\hat Y$, et commenter*
+
+```{r}
+
+Y <- treedensity
+Y_chapeau <- fitted(modele_complet)
+
+# Créer le graphique
+plot(Y, Y_chapeau, 
+     xlab = "Densité observée (Y)", 
+     ylab = "Densité prédite (Ŷ)",
+     main = "Valeurs observées vs prédites (R² = 0.204)",
+     pch = 20,
+     col = rgb(0, 0, 1, 0.5))
+
+# Ajouter la droite y = x (droite identité)
+abline(a = 0, b = 1, col = "red", lwd = 2)
+
+# Ajouter une droite de régression pour voir l'ajustement
+abline(lm(Y_chapeau ~ Y), col = "blue", lty = 2, lwd = 2)
+
+legend("topright", 
+       legend = c("Droite identité (y=x)", "Droite de régression"),
+       col = c("red", "blue"), 
+       lty = c(1, 2), 
+       lwd = 2,
+       cex = 0.8)
+
+# Calculer quelques statistiques pour le commentaire
+correlation_YYchap <- cor(Y, Y_chapeau)
+cat("Corrélation entre Y et Ŷ :", round(correlation_YYchap, 4), "\n")
+
+```
+
+
+Retrouver les coefficients des variables originelles dans le prédicteur linéaire $\hat Y$.
+
+Si besoin est, corriger la linéarité de la liaison en utilisant une transformation de type Log sur $Y$ qui laisse les zéros invariants.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
