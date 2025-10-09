@@ -1,1 +1,1 @@
-# Analyse_multivari-e
+# Analyse_multivariée
