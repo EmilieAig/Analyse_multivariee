@@ -830,7 +830,170 @@ plot_cercle_pls(correlations_pls, 2, 3, pls_model_final$Xvar)
 
 Les coefficients PLS sont directement les coefficients de régression des variables originelles, contrairement à l'ACP où il faut les reconstituer. C'est une des forces de la PLS : elle donne directement l'effet de chaque variable sur Y.
 
+```{r}
+
+# Extraire les coefficients du modèle PLS pour les 5 composantes
+coef_pls_matrix <- coef(pls_model_final, ncomp = ncomp, intercept = FALSE)
+
+# Convertir en vecteur (ils sont déjà dans l'espace des variables originelles)
+coef_pls_vector <- as.vector(coef_pls_matrix)
+
+# Créer un data frame pour une meilleure visualisation
+coef_pls_df <- data.frame(
+  Variable = colnames(var_explicatives),
+  Coefficient_PLS = coef_pls_vector,
+  stringsAsFactors = FALSE
+)
+
+# Trier par valeur absolue décroissante
+coef_pls_df_sorted <- coef_pls_df[order(abs(coef_pls_df$Coefficient_PLS), decreasing = TRUE), ]
+
+print(coef_pls_df_sorted)
+
+```
+
 *d) Comparer l'ajustement et les coefficients du modèle obtenu avec ceux des régressions sur composantes principales (on prêtera notamment attention aux signes de ces coefficients).*
+
+```{r}
+
+# --- PARTIE 1 : Comparaison des performances ---
+
+# Récapitulatif des R²
+r2_rcp_globale <- summary(modele_log)$r.squared
+r2_rcp_themes <- summary(modele_themes)$r.squared
+r2_pls <- r2_pls_cv
+
+# Récapitulatif des MSE
+mse_rcp_globale <- mean((treedensity_log - fitted(modele_log))^2)
+mse_rcp_themes <- mean((treedensity_log - fitted(modele_themes))^2)
+mse_pls <- mean((treedensity_log - Y_chapeau_pls)^2)
+
+# Créer un tableau comparatif
+comparaison_performance <- data.frame(
+  Méthode = c("RCP globale (3 comp.)", "RCP thèmes (5 comp.)", "PLS (5 comp.)"),
+  R2 = c(r2_rcp_globale, r2_rcp_themes, r2_pls),
+  MSE = c(mse_rcp_globale, mse_rcp_themes, mse_pls),
+  Nb_composantes = c(3, 5, 5)
+)
+
+print(comparaison_performance)
+
+print(coef_pls_df)
+
+```
+
+```{r}
+
+# --- PARTIE 2 : Comparaison des coefficients ---
+
+# Récupérer les coefficients de la RCP globale
+coef_rcp_globale_df <- coef_df
+
+# Récupérer les coefficients de la RCP thèmes
+coef_rcp_themes_df <- coef_themes_tous_sorted
+
+# Fusionner les trois dataframes de coefficients
+comparaison_coef <- merge(
+  coef_rcp_globale_df[, c("Variable", "Coefficient")],
+  coef_rcp_themes_df[, c("Variable", "Coefficient")],
+  by = "Variable",
+  all = TRUE,
+  suffixes = c("_RCP_globale", "_RCP_themes")
+)
+
+# Ajouter les coefficients PLS
+comparaison_coef <- merge(
+  comparaison_coef,
+  coef_pls_df[, c("Variable", "Coefficient_PLS")],
+  by = "Variable",
+  all = TRUE
+)
+
+# Renommer les colonnes
+colnames(comparaison_coef) <- c("Variable", "RCP_globale", "RCP_themes", "PLS")
+
+# Remplacer les NA par 0
+comparaison_coef[is.na(comparaison_coef)] <- 0
+
+# Calculer la moyenne absolue pour trier
+comparaison_coef$Moyenne_abs <- rowMeans(abs(comparaison_coef[, c("RCP_globale", "RCP_themes", "PLS")]))
+
+# Trier par moyenne absolue décroissante
+comparaison_coef_sorted <- comparaison_coef[order(comparaison_coef$Moyenne_abs, decreasing = TRUE), ]
+
+print(head(comparaison_coef_sorted[, -5], 20), row.names = FALSE)
+
+```
+
+```{r}
+
+# --- PARTIE 3 : Analyse des signes ---
+
+# Fonction pour comparer les signes
+comparer_signes <- function(coef1, coef2, nom1, nom2) {
+  meme_signe <- sum(sign(coef1) == sign(coef2) & coef1 != 0 & coef2 != 0)
+  signe_oppose <- sum(sign(coef1) != sign(coef2) & coef1 != 0 & coef2 != 0)
+  total_non_nul <- sum(coef1 != 0 & coef2 != 0)
+  
+  cat(sprintf("%s vs %s :\n", nom1, nom2))
+  cat(sprintf("  - Même signe : %d / %d (%.1f%%)\n", meme_signe, total_non_nul, 100 * meme_signe / total_non_nul))
+  cat(sprintf("  - Signe opposé : %d / %d (%.1f%%)\n\n", signe_oppose, total_non_nul, 100 * signe_oppose / total_non_nul))
+}
+
+# Comparaisons
+comparer_signes(comparaison_coef$RCP_globale, comparaison_coef$RCP_themes, "RCP globale", "RCP thèmes")
+comparer_signes(comparaison_coef$RCP_globale, comparaison_coef$PLS, "RCP globale", "PLS")
+comparer_signes(comparaison_coef$RCP_themes, comparaison_coef$PLS, "RCP thèmes", "PLS")
+
+# Identifier les variables avec des signes différents entre PLS et RCP
+
+signes_opposes <- comparaison_coef_sorted[
+  sign(comparaison_coef_sorted$PLS) != sign(comparaison_coef_sorted$RCP_themes) &
+  comparaison_coef_sorted$PLS != 0 &
+  comparaison_coef_sorted$RCP_themes != 0,
+  c("Variable", "RCP_themes", "PLS")
+]
+
+if (nrow(signes_opposes) > 0) {
+  print(head(signes_opposes, 10), row.names = FALSE)
+  cat("\nNombre total de variables avec signes opposés :", nrow(signes_opposes), "\n")
+} else {
+  cat("Aucune variable majeure avec des signes opposés.\n")
+}
+
+```
+
+```{r}
+
+# --- PARTIE 4 : Visualisation graphique comparative ---
+
+# Graphique de comparaison des coefficients (TOP 15)
+top15_comp <- head(comparaison_coef_sorted, 15)
+
+# Graphique avec 3 barres côte à côte
+par(mfrow = c(1, 1), mar = c(5, 10, 4, 2))
+
+# Préparer la matrice pour barplot
+mat_coef <- t(as.matrix(top15_comp[, c("RCP_globale", "RCP_themes", "PLS")]))
+colnames(mat_coef) <- top15_comp$Variable
+
+par(mar = c(5, 10, 4, 2))
+barplot(mat_coef,
+        beside = TRUE,
+        horiz = TRUE,
+        las = 1,
+        col = c("lightblue", "orange", "purple"),
+        main = "Comparaison des coefficients (TOP 15 variables)",
+        xlab = "Coefficient",
+        cex.names = 0.8,
+        cex.main = 1.2,
+        cex.lab = 1.1,
+        legend.text = c("RCP globale", "RCP thèmes", "PLS"),
+        args.legend = list(x = "bottomright", cex = 0.9))
+abline(v = 0, lwd = 2, lty = 2)
+
+
+```
 
 
 ## Question 5. Régressions pénalisées
