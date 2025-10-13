@@ -1,0 +1,333 @@
+---
+title: "Analyse multivariée"
+author: "AIGOIN Emilie"
+date: "2025-10-05"
+output: html_document
+---
+
+# Mise en place des données
+
+### Chargement des packages nécessaires
+
+```{r, warning = FALSE, message = FALSE}
+
+library(dplyr)
+library(pls)
+library(glmnet)
+
+```
+
+### Ouvrir le fichier contenant le jeu de données
+
+```{r, warning=FALSE}
+
+# Ouvrir le fichier en précisant les séparateurs
+data <- read.csv("Datagenus.csv", sep = ";", dec = ",", header = TRUE)
+
+# Transform all character columns into numerical values
+data <- data %>% mutate_if(is.character,~ as.numeric(.))
+
+# Enlever la colonne forest
+data <- data %>% select(-forest)
+                          
+```
+
+### Mettre en place les sous jeux de données qui vont nous servir pour notre analyse
+
+```{r}
+
+# Données qui contiennent uniquement les variables d'espèces
+data_gen <- data %>% select(num_range("gen", 1:27))
+
+```
+
+# Question 1.
+
+Nous allons sommer les abondances des 27 espèces et diviser cette somme par la surface de chaque parcelle. On obtient ainsi la densité de peuplement arboré sur la parcelle.
+
+```{r}
+
+# Calcul de la densité
+treedensity <- rowSums(data_gen) / data$surface
+
+```
+
+Nous continuons en calculant les carrés des variables géographiques quantitatives que sont la latitude, la longitude, l'altitude, la pluviométrie annuelle et les pluviométreis mensuelles.
+
+```{r}
+
+# Calculer les carrés des variables géographiques
+var_geo_quanti <- c("lat", "lon", "altitude", "pluvio_yr", paste0("pluvio_", 1:12))
+var_geo_carre <- data[, var_geo_quanti]^2
+colnames(var_geo_carre) <- paste0(var_geo_quanti, "^2")
+
+```
+
+Puis nous formons les indicatrices de la variable geology. 
+
+```{r}
+
+# Créer les indicatrices de geology
+data$geology <- as.factor(data$geology)
+geo_indic <- model.matrix(~ geology - 1, data = data)
+
+```
+
+On voit qu'il n'y a pas de type 4 dans la colonne géologie.
+
+```{r}
+
+# Regrouper toutes les variables explicatives
+var_explicatives <- bind_cols(
+  data %>% select(lat, lon, altitude, pluvio_yr, num_range("pluvio_", 1:12)),  # Variables géographiques
+  var_geo_carre,                                                               # Leurs carrés
+  as.data.frame(geo_indic),                                                    # Indicatrices geology
+  data %>% select(num_range("evi_", 1:23))                                     # EVI
+)
+
+```
+
+L'ensemble des variables explicatives présente deux multi-colinéarités certaines :
+
+- Variables indicatrices de la géologie : les six indicatrices créées à partir de la variable geology vérifient la relation : $$ \text{geology}_1 + \text{geology}_2 + \text{geology}_3 + \text{geology}_4 + \text{geology}_5 + \text{geology}_6 = 1 $$ Cette égalité traduit le fait que chaque observation appartient à exactement une catégorie géologique. Donc, si on connaît 5/6 des variables, on peut forcément connaître les valeurs de la dernière.
+- Pluviométrie annuelle et mensuelles : la pluviométrie annuelle `pluvio_yr` correspond à la somme des pluviométries mensuelles : $$ \text{pluvio_year} = \sum_{i=1}^{12} \text{pluvio}_i$$
+Cette relation induit une dépendance linéaire entre ces treize variables.
+
+Donc, l'ensemble des variables explicatives comporte deux combinaisons linéaires qui s'annulent, réduisant de deux unités le rang de la matrice des variables explicatives.
+
+Nous avons retenu également la transformation log(Y+1) pour nos données.
+
+## Question 4. Régression PLS
+
+*a) Utiliser la régression PLS pour modéliser au mieux la densité (ou sa transformation). Vous utiliserez la validation croisée (de type Leave K out ou K-fold) pour déterminer le meilleur nombre de composantes.*
+
+```{r}
+
+# Créer un data frame avec Y transformé et les variables explicatives
+data_pls <- data.frame(
+  treedensity_log = treedensity_log,  # transformation log
+  var_explicatives
+)
+
+```
+
+```{r}
+
+# Ajustement du modèle PLS
+pls_model <- plsr(treedensity_log ~ ., 
+                  data = data_pls,
+                  ncomp = 20,             # Tester jusqu'à 20 composantes
+                  validation = "CV",      # Validation croisée
+                  method = "oscorespls",  # Algorithme PLS classique
+                  scale = TRUE)           # Centrer et réduire
+
+# Afficher le résumé du modèle PLS
+summary(pls_model)
+
+```
+
+```{r}
+
+# Récupérer l'erreur de prédiction PRESS
+press_values <- pls_model$validation$PRESS[1, ]  # Extraire la première ligne
+
+# Tracer le PRESS en fonction du nombre de composantes
+plot(1:length(press_values), press_values, 
+     type = "b", 
+     xlab = "Nombre de composantes PLS", 
+     ylab = "PRESS (erreur de prédiction)",
+     main = "Validation croisée - Sélection du nombre de composantes PLS",
+     col = "darkblue", pch = 19)
+abline(v = 6, col = "pink3", lty = 2, lwd = 2)
+text(6, max(press_values)*0.9, "6 comp.", col = "pink3", pos = 4)
+grid()
+
+# Nombre de composantes optimales (cross-validation)
+ncomp_auto <- which.min(press_values)
+
+# Nombre de composantes choisies (à la main)
+ncomp <- 6
+
+cat("Nombre de composantes recommandé (cross-validation) :", ncomp_auto, "\n")
+cat("Nombre de composantes choisi (à la main) :", ncomp, "\n")
+cat("PRESS à 6 composantes :", round(press_values[6], 3), "\n")
+
+# Différence entre les PRESS
+diff_press <- diff(press_values)
+cat("\nDifférence de PRESS entre composantes successives :\n")
+for (i in 1:length(diff_press)) {
+  cat("Comp.", i, "→", i+1, ": dif PRESS =", round(diff_press[i], 3), "\n")
+}
+
+```
+
+20 optimales mais prenez 6 composantes PLS car :
+
+✅ C'est où le PRESS commence à stagner (coude visible)
+✅ Le CV se stabilise (pas d'amélioration notable après)
+✅ C'est comparable aux 5 composantes de Q3 (2+3)
+✅ Cela limite le sur-ajustement
+✅ C'est justifiable pour un prof pointilleux : "critère du coude"
+
+```{r}
+
+# Réajuster le modèle avec le nombre optimal de composantes
+pls_model_final <- plsr(treedensity_log ~ ., 
+                        data = data_pls,
+                        ncomp = ncomp,
+                        validation = "CV",
+                        scale = TRUE)
+
+# Prédictions en validation croisée
+Y_chapeau_pls <- pls_model_final$validation$pred[, , ncomp]
+
+# Calculer le R² en validation croisée (1 - SSE / SST)
+SSE <- sum((treedensity_log - Y_chapeau_pls)^2)
+SST <- sum((treedensity_log - mean(treedensity_log))^2)
+r2_pls_cv <- 1 - (SSE / SST)
+
+cat("R² :", round(r2_pls_cv, 4), "\n")
+
+```
+
+*b) Tenter au mieux d'interpréter les composantes retenues, et les plans qu'elles engendrent, exactement comme pour une ACP réduite.*
+
+```{r}
+
+# Récupérer les poids des variables originelles
+loadings_pls <- pls_model_final$loading.weights[, 1:ncomp]
+
+cat("Poids des variables dans les 6 composantes PLS :\n")
+
+# Afficher les poids triés pour chaque composante
+for (j in 1:ncomp) {
+  cat("--- COMPOSANTE PLS", j, "---\n")
+  loadings_j <- sort(abs(loadings_pls[, j]), decreasing = TRUE)[1:10]
+  for (i in 1:length(loadings_j)) {
+    var_name <- names(loadings_j)[i]
+    loading_val <- loadings_pls[var_name, j]
+    cat(sprintf("  %s : %.4f\n", var_name, loading_val))
+  }
+  cat("\n")
+}
+
+```
+
+On voit que certaines variables reviennent souvent : 
+- Dans 4 composantes : EVI6.
+- Dans 3 composantes : EVI1.
+- Dans 2 composantes : Pluvio_3, Pluvio3^2, Pluvio_5, Pluvio_5^2, EVI3, EVI10, EVI11, EVI12, EVI16, Altitude, Geology6.
+
+Nous allons essayer de les représenter sur le cercle des corrélations des variables.
+
+Pour cela, nous allons analyser les plans (1,2), (1,3) et (2,3) car les composantes PLS1, PLS2 et PLS3 sont les trois premières et capturent progressivement la variance la plus importante. PLS1 capture 24.54% de la variance en Y, PLS2 ajoute 3.95%, PLS3 ajoute 4.62%. À partir de PLS4, les gains deviennent plus faibles. Les composantes au-delà de PLS3 expliquent chacune moins de 1% de variance supplémentaire en Y.
+
+```{r}
+
+# Scores des variables (valeurs projetées sur les composantes)
+X_scores <- pls_model_final$scores
+X_original <- scale(data_pls[, -1])  # sans la variable Y
+
+# Calcul des corrélations entre variables et composantes
+correlations_pls <- cor(X_original, X_scores)
+
+# Vérification rapide
+dim(correlations_pls)
+head(correlations_pls[, 1:3])
+
+
+```
+
+
+```{r}
+
+# Graphique du cercle des corrélations
+
+plot_cercle_pls <- function(correlations, comp1, comp2, Xvar) {
+  
+  var1 <- round(100 * Xvar[comp1] / sum(Xvar), 1)
+  var2 <- round(100 * Xvar[comp2] / sum(Xvar), 1)
+  
+  plot(0, 0, xlim = c(-1, 1), ylim = c(-1, 1),
+       xlab = paste0("PLS", comp1, " (", var1, "% var X)"),
+       ylab = paste0("PLS", comp2, " (", var2, "% var X)"),
+       main = paste("Cercle de corrélation PLS - Plan", comp1, "-", comp2),
+       type = "n", asp = 1)
+  
+  # Cercle unité + axes
+  symbols(0, 0, circles = 1, inches = FALSE, add = TRUE, fg = "black", lwd = 2)
+  abline(h = 0, v = 0, lty = 2, col = "gray50")
+  
+  contrib <- correlations[, comp1]^2 + correlations[, comp2]^2
+  
+  for (i in 1:nrow(correlations)) {
+    x <- correlations[i, comp1]
+    y <- correlations[i, comp2]
+    
+    # Couleur et épaisseur selon contribution
+    if (contrib[i] > 0.5) {
+      col <- "darkblue"; lwd <- 2; cex_text <- 0.6
+    } else if (contrib[i] > 0.3) {
+      col <- "blue"; lwd <- 1.5; cex_text <- 0.55
+    } else {
+      col <- "lightblue"; lwd <- 1; cex_text <- 0.5
+    }
+    
+    # Flèches
+    arrows(0, 0, x, y, length = 0.1, col = col, lwd = lwd)
+    
+    # Affichage de TOUS les noms
+    text(x * 1.15, y * 1.15, 
+         labels = rownames(correlations)[i],
+         cex = cex_text,
+         col = col)
+  }
+  
+  # Cercle guide supplémentaire
+  circle <- seq(0, 2*pi, length.out = 100)
+  lines(0.7*cos(circle), 0.7*sin(circle), col = "orange", lty = 2)
+  
+  legend("topright",
+         legend = c("Bien représenté (>0.5)", "Moyen (0.3-0.5)", "Faible (<0.3)"),
+         col = c("darkblue", "blue", "lightblue"),
+         lwd = c(2, 1.5, 1),
+         cex = 0.7)
+}
+
+# Exemple sur 3 plans principaux
+plot_cercle_pls(correlations_pls, 1, 2, pls_model_final$Xvar)
+plot_cercle_pls(correlations_pls, 1, 3, pls_model_final$Xvar)
+plot_cercle_pls(correlations_pls, 2, 3, pls_model_final$Xvar)
+
+
+```
+
+PLS1 explique une part majeure de la variance X (~40.4%).
+PLS2 explique une part importante aussi (~25.5%).
+PLS3 explique une faible part avec environ 5%.
+
+=> Le plan 1–2 capte la majorité de l’information structurelle des variables explicatives.
+
+*c) Retrouver les coefficients des variables (et interactions) originelles dans le prédicteur linéaire ̂ Y*
+
+
+
+*d) Comparer l'ajustement et les coefficients du modèle obtenu avec ceux des régressions sur composantes principales (on prêtera notamment attention aux signes de ces coefficients).*
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
