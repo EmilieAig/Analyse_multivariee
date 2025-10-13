@@ -628,98 +628,104 @@ Cette méthode constitue un compromis intéressant entre l'ACP globale (qui mél
 
 ```{r}
 
-# Préparer les données : X = var_explicatives, Y = treedensity_log
+# Préparer les données
 X <- as.matrix(var_explicatives)
 Y <- treedensity_log
 
-# Régression PLS avec validation croisée (10-fold cross-validation)
-# On teste jusqu'à 20 composantes maximum
-set.seed(123)  # Pour la reproductibilité
+# Régression PLS avec validation croisée
+set.seed(123)
 pls_model <- plsr(Y ~ X, 
-                  ncomp = 20,              # Nombre max de composantes à tester
-                  scale = TRUE,             # Centrer et réduire les variables
-                  validation = "CV",        # Validation croisée
-                  segments = 10)            # 10-fold CV
+                  ncomp = 20,              # Tester jusqu'à 20
+                  scale = TRUE,            
+                  validation = "CV",       
+                  segments = 10)
 
-# Résumé du modèle
-cat("\n=== RÉSUMÉ DU MODÈLE PLS ===\n")
+# Afficher la variance expliquée
+cat("\n=== VARIANCE EXPLIQUÉE ===\n")
 summary(pls_model)
 
-# Afficher les erreurs de prédiction (PRESS) pour chaque nombre de composantes
-cat("\n=== ERREUR DE VALIDATION CROISÉE (PRESS) ===\n")
-press_values <- pls_model$validation$PRESS[1, ]  # Extraire correctement les valeurs
-cat("Longueur de PRESS :", length(press_values), "\n")
-print(data.frame(
-  Composantes = 1:length(press_values),
-  PRESS = press_values
-))
+# Extraire PRESS
+press_values <- pls_model$validation$PRESS[1, ]
 
-# Graphique des erreurs de validation croisée
+# Graphiques
 par(mfrow = c(1, 2))
 
-# Graphique 1 : PRESS en fonction du nombre de composantes
+# PRESS
 plot(1:length(press_values), press_values, 
      type = "b", 
      xlab = "Nombre de composantes", 
-     ylab = "PRESS (erreur de prédiction)",
-     main = "Validation croisée PLS",
-     col = "blue",
-     pch = 19)
+     ylab = "PRESS",
+     main = "Erreur de validation croisée",
+     col = "blue", pch = 19)
+abline(v = 6, col = "red", lty = 2, lwd = 2)
+text(6, max(press_values)*0.9, "6 comp.", col = "red", pos = 4)
 grid()
 
-# Graphique 2 : R² en fonction du nombre de composantes
-r2_values <- R2(pls_model)$val[1, 1, ]  # R² de validation croisée
+# R² de Y (pas de X !)
+r2_values <- R2(pls_model, estimate = "CV")$val[1, 1, ]
 plot(1:length(r2_values), r2_values,
      type = "b",
      xlab = "Nombre de composantes",
-     ylab = "R² (validation croisée)",
-     main = "R² en fonction du nombre de composantes",
-     col = "darkgreen",
-     pch = 19)
+     ylab = "R² de Y (validation croisée)",
+     main = "Variance de Y expliquée",
+     col = "darkgreen", pch = 19)
+abline(v = 6, col = "red", lty = 2, lwd = 2)
+abline(h = r2_values[6], col = "red", lty = 2, lwd = 1)
+text(6, r2_values[6], paste0("R²=", round(r2_values[6], 3)), pos = 4, col = "red")
 grid()
 
 par(mfrow = c(1, 1))
 
-# Trouver le nombre optimal de composantes (minimum de PRESS)
-optimal_ncomp <- which.min(press_values)
-cat("\n=== NOMBRE OPTIMAL DE COMPOSANTES ===\n")
-cat("Nombre de composantes minimisant PRESS :", optimal_ncomp, "\n")
-cat("PRESS minimal :", min(press_values), "\n\n")
+```
 
-# Ajuster le modèle final avec le nombre optimal de composantes
+```{r}
+
+optimal_ncomp_choisi <- 6  # Choix raisonné
+
+cat("\n=== CHOIX RAISONNÉ ===\n")
+cat("Composante minimisant PRESS :", which.min(press_values), "(sur-ajustement)\n")
+cat("Composante choisie (compromis) :", optimal_ncomp_choisi, "\n\n")
+
+cat("Comparaison :\n")
+cat("- 6 composantes  : R² =", round(r2_values[6], 3), 
+    "  PRESS =", round(press_values[6], 1), "\n")
+cat("- 20 composantes : R² =", round(r2_values[20], 3), 
+    "  PRESS =", round(press_values[20], 1), "\n")
+cat("Gain avec 20 comp. :", round((r2_values[20] - r2_values[6])*100, 2), 
+    "% (ne justifie pas la complexité)\n\n")
+
+# Ajuster le modèle final avec 6 composantes
 pls_final <- plsr(Y ~ X, 
-                  ncomp = optimal_ncomp,
+                  ncomp = optimal_ncomp_choisi,
                   scale = TRUE)
 
-# Résumé du modèle final
-cat("\n=== MODÈLE PLS FINAL ===\n")
-cat("Nombre de composantes retenues :", optimal_ncomp, "\n")
-summary(pls_final)
-
 # Calculer le R² du modèle final
-Y_pred_pls <- predict(pls_final, ncomp = optimal_ncomp)
+Y_pred_pls <- predict(pls_final, ncomp = optimal_ncomp_choisi)
 r2_pls <- cor(Y, Y_pred_pls)^2
-cat("\nR² du modèle PLS final :", round(r2_pls, 3), "\n")
+mse_pls <- mean((Y - Y_pred_pls)^2)
 
-# Graphique Y observé vs Y prédit
+cat("=== MODÈLE PLS FINAL ===\n")
+cat("Nombre de composantes :", optimal_ncomp_choisi, "\n")
+cat("R² sur données d'entraînement :", round(r2_pls, 4), "\n")
+cat("MSE :", round(mse_pls, 4), "\n\n")
+
+# Graphique
 plot(Y, Y_pred_pls,
      xlab = "log(Densité + 1) observé",
      ylab = "log(Densité + 1) prédit",
-     main = paste0("Modèle PLS (", optimal_ncomp, " composantes)\nR² = ", round(r2_pls, 3)),
+     main = paste0("Modèle PLS (", optimal_ncomp_choisi, " comp.)\nR² = ", 
+                   round(r2_pls, 3)),
      pch = 20,
      col = rgb(0.6, 0, 0.6, 0.5))
-
 abline(a = 0, b = 1, col = "red", lwd = 2)
 abline(lm(Y_pred_pls ~ Y), col = "purple", lty = 2, lwd = 2)
-
 legend("topleft",
        legend = c("Droite identité (y=x)", "Droite de régression"),
        col = c("red", "purple"),
-       lty = c(1, 2),
-       lwd = 2,
-       cex = 0.8)
+       lty = c(1, 2), lwd = 2, cex = 0.8)
 
 ```
+
 
 La validation croisée (10-fold) suggère un nombre optimal de 20 composantes pour minimiser le critère PRESS. Cependant, ce choix nous semble excessif et présente un risque évident de sur-ajustement : utiliser 20 composantes sur 60 variables explicatives représente un tiers des variables, ce qui va à l'encontre du principe de parcimonie. De plus, nous pouvons voir que, pour le press, il y a un minimum local atteit, puis ça remonte et ensuite ça resdecend donc surajustement visiblE. De meêm pour le r^2 qui augmnter pour se stabilier et re augmenter par la suite.
 
@@ -736,145 +742,146 @@ Cette décision repose sur un compromis entre qualité d'ajustement et parcimoni
 
 ```{r}
 
-# Redéfinir le nombre de composantes retenues
-optimal_ncomp_choisi <- 5
+# Nombre de composantes retenues
+n_comp <- 6
 
-# Les loadings : contribution des variables originelles aux composantes PLS
+# Récupérer les loadings (contributions des variables aux composantes)
 loadings_pls <- loadings(pls_final)
 
-cat("Dimensions des loadings :", dim(loadings_pls), "\n\n")
+# Récupérer les scores (coordonnées des individus sur les composantes)
+scores_pls <- scores(pls_final)
 
-# Pour chaque composante, identifier les variables les plus importantes
-for (comp in 1:optimal_ncomp_choisi) {
-  cat("=== COMPOSANTE PLS", comp, "===\n\n")
+# --- 1) ANALYSER LES LOADINGS (quelles variables contribuent le plus) ---
+cat("\n=== TOP 10 DES VARIABLES PAR COMPOSANTE ===\n\n")
+
+for (comp in 1:n_comp) {
+  cat("--- Composante", comp, "---\n")
   
   # Extraire les loadings de cette composante
   load_comp <- loadings_pls[, comp]
   
-  # Créer un data frame avec noms et valeurs
-  load_df <- data.frame(
-    Variable = names(load_comp),
-    Loading = as.numeric(load_comp)
-  )
+  # Trier par valeur absolue
+  load_sorted <- sort(abs(load_comp), decreasing = TRUE)
   
-  # Trier par valeur absolue décroissante
-  load_df <- load_df[order(abs(load_df$Loading), decreasing = TRUE), ]
-  
-  cat("Top 10 des variables les plus importantes (en valeur absolue) :\n")
-  print(head(load_df, 10), row.names = FALSE)
+  # Afficher le top 10
+  print(head(load_sorted, 10))
   cat("\n")
 }
 
-# === CERCLES DE CORRÉLATION (VARIABLES) ===
-cat("\n=== CERCLES DE CORRÉLATION DES VARIABLES ===\n\n")
+# --- 2) CERCLES DE CORRÉLATION (version simple) ---
+cat("\n=== CERCLES DE CORRÉLATION ===\n")
 
-# Récupérer les scores (coordonnées des individus)
-scores_pls <- scores(pls_final)
+# Calculer les corrélations entre variables originelles et composantes
+X_matrix <- as.matrix(var_explicatives)
+correlations <- cor(X_matrix, scores_pls)
 
-# Calculer les corrélations entre variables originelles et composantes PLS
-correlations <- cor(X, scores_pls)
-
-# Pourcentages de variance expliquée
-var_exp <- pls_final$Xvar / sum(pls_final$Xvar) * 100
-
-# === PLAN 1-2 : VARIABLES AVEC FLÈCHES ===
-par(mfrow = c(1, 2))
-
-plot(0, 0, 
-     xlim = c(-1, 1), ylim = c(-1, 1),
-     xlab = paste0("Comp 1 (", round(var_exp[1], 1), "%)"),
-     ylab = paste0("Comp 2 (", round(var_exp[2], 1), "%)"),
-     main = "Cercle des corrélations (Plan 1-2)",
-     type = "n",
-     asp = 1)
-
-# Ajouter le cercle
-symbols(0, 0, circles = 1, inches = FALSE, add = TRUE, fg = "red", lwd = 2)
-abline(h = 0, v = 0, lty = 2, col = "gray50")
-
-# Identifier les variables bien représentées
-contrib_12 <- correlations[, 1]^2 + correlations[, 2]^2
-seuil <- 0.3  # Seuil de contribution pour afficher
-
-# Dessiner les flèches pour toutes les variables
-for (i in 1:nrow(correlations)) {
-  if (contrib_12[i] > seuil) {
-    arrows(0, 0, 
-           correlations[i, 1], correlations[i, 2],
-           length = 0.1, 
-           col = ifelse(contrib_12[i] > 0.5, "blue", "gray60"),
-           lwd = ifelse(contrib_12[i] > 0.5, 2, 1))
+# Fonction simple pour tracer un cercle de corrélation
+plot_cercle <- function(correlations, comp1, comp2) {
+  
+  # Graphique vide
+  plot(0, 0, xlim = c(-1, 1), ylim = c(-1, 1),
+       xlab = paste("Composante", comp1),
+       ylab = paste("Composante", comp2),
+       main = paste("Cercle de corrélation - Plan", comp1, "-", comp2),
+       type = "n", asp = 1)
+  
+  # Cercle unitaire
+  symbols(0, 0, circles = 1, inches = FALSE, add = TRUE, fg = "black", lwd = 2)
+  abline(h = 0, v = 0, lty = 2, col = "gray50")
+  
+  # Contribution au plan
+  contrib <- correlations[, comp1]^2 + correlations[, comp2]^2
+  
+  # Tracer les flèches
+  for (i in 1:nrow(correlations)) {
+    x <- correlations[i, comp1]
+    y <- correlations[i, comp2]
     
-    # Ajouter le nom de la variable si bien représentée
-    if (contrib_12[i] > 0.5) {
-      text(correlations[i, 1] * 1.15, correlations[i, 2] * 1.15,
+    # Couleur selon contribution
+    if (contrib[i] > 0.5) {
+      col <- "darkblue"
+      lwd <- 2
+    } else if (contrib[i] > 0.3) {
+      col <- "blue"
+      lwd <- 1.5
+    } else {
+      col <- "lightblue"
+      lwd <- 1
+    }
+    
+    arrows(0, 0, x, y, length = 0.1, col = col, lwd = lwd)
+    
+    # Ajouter le nom si bien représenté
+    if (contrib[i] > 0.5) {
+      text(x * 1.15, y * 1.15, 
            labels = rownames(correlations)[i],
-           cex = 0.6, col = "darkblue")
+           cex = 0.6, col = col)
     }
   }
+  
+  legend("topright",
+         legend = c("Bien représenté (>0.5)", "Moyen (0.3-0.5)", "Faible (<0.3)"),
+         col = c("darkblue", "blue", "lightblue"),
+         lwd = c(2, 1.5, 1),
+         cex = 0.7)
 }
 
-# === PLAN 1-3 : VARIABLES AVEC FLÈCHES ===
-plot(0, 0, 
-     xlim = c(-1, 1), ylim = c(-1, 1),
-     xlab = paste0("Comp 1 (", round(var_exp[1], 1), "%)"),
-     ylab = paste0("Comp 3 (", round(var_exp[3], 1), "%)"),
-     main = "Cercle des corrélations (Plan 1-3)",
-     type = "n",
-     asp = 1)
-
-symbols(0, 0, circles = 1, inches = FALSE, add = TRUE, fg = "red", lwd = 2)
-abline(h = 0, v = 0, lty = 2, col = "gray50")
-
-contrib_13 <- correlations[, 1]^2 + correlations[, 3]^2
-
-for (i in 1:nrow(correlations)) {
-  if (contrib_13[i] > seuil) {
-    arrows(0, 0, 
-           correlations[i, 1], correlations[i, 3],
-           length = 0.1, 
-           col = ifelse(contrib_13[i] > 0.5, "darkgreen", "gray60"),
-           lwd = ifelse(contrib_13[i] > 0.5, 2, 1))
-    
-    if (contrib_13[i] > 0.5) {
-      text(correlations[i, 1] * 1.15, correlations[i, 3] * 1.15,
-           labels = rownames(correlations)[i],
-           cex = 0.6, col = "darkgreen")
-    }
-  }
-}
-
+# Tracer les 3 plans principaux
+par(mfrow = c(2, 2))
+plot_cercle(correlations, 1, 2)
+plot_cercle(correlations, 1, 3)
+plot_cercle(correlations, 2, 3)
 par(mfrow = c(1, 1))
 
-# === NUAGE DES INDIVIDUS ===
-cat("\n=== NUAGE DES INDIVIDUS ===\n\n")
+# --- 3) NUAGE DES INDIVIDUS ---
+cat("\n=== NUAGE DES INDIVIDUS ===\n")
 
-par(mfrow = c(1, 2))
+# Créer un gradient de couleurs selon Y
+Y_norm <- (treedensity_log - min(treedensity_log)) / 
+          (max(treedensity_log) - min(treedensity_log))
+couleurs <- rgb(Y_norm, 0, 1 - Y_norm, 0.6)
 
-# Plan 1-2 : INDIVIDUS colorés selon Y
+# Plan 1-2
 plot(scores_pls[, 1], scores_pls[, 2],
-     xlab = paste0("Comp 1 (", round(var_exp[1], 1), "%)"),
-     ylab = paste0("Comp 2 (", round(var_exp[2], 1), "%)"),
+     xlab = "Composante 1",
+     ylab = "Composante 2",
      main = "Nuage des individus (Plan 1-2)",
-     pch = 20,
-     col = rgb(Y/max(Y), 0, 1-Y/max(Y), 0.6),
-     cex = 0.8)
+     pch = 20, col = couleurs, cex = 1)
 abline(h = 0, v = 0, lty = 2, col = "gray50")
 
-# Plan 1-3 : INDIVIDUS
-plot(scores_pls[, 1], scores_pls[, 3],
-     xlab = paste0("Comp 1 (", round(var_exp[1], 1), "%)"),
-     ylab = paste0("Comp 3 (", round(var_exp[3], 1), "%)"),
-     main = "Nuage des individus (Plan 1-3)",
-     pch = 20,
-     col = rgb(Y/max(Y), 0, 1-Y/max(Y), 0.6),
-     cex = 0.8)
-abline(h = 0, v = 0, lty = 2, col = "gray50")
+legend("topright",
+       legend = c("Densité élevée", "Densité faible"),
+       col = c("red", "blue"),
+       pch = 20,
+       cex = 0.8)
 
-par(mfrow = c(1, 1))
+# --- 4) VARIANCE EXPLIQUÉE ---
+cat("\n=== VARIANCE EXPLIQUÉE ===\n")
 
-cat("Note : Les individus sont colorés selon leur densité observée\n")
-cat("(Rouge = densité élevée, Bleu = densité faible)\n\n")
+# Variance de X expliquée
+var_X <- pls_final$Xvar / sum(pls_final$Xvar) * 100
+cat("\nVariance de X expliquée par composante :\n")
+for (i in 1:n_comp) {
+  cat(sprintf("Comp %d : %.2f%%\n", i, var_X[i]))
+}
+
+# Variance de Y expliquée - R² cumulé
+cat("\nR² cumulé de Y par nombre de composantes :\n")
+r2_result <- R2(pls_final, estimate = "train")
+r2_cumul <- as.vector(r2_result$val)  # Convertir en vecteur simple
+
+for (i in 1:n_comp) {
+  cat(sprintf("%d comp : R² = %.4f (%.2f%%)\n", i, r2_cumul[i], r2_cumul[i] * 100))
+}
+
+# Variance de Y apportée par chaque composante (incrément)
+cat("\nVariance de Y apportée par chaque composante (incrément) :\n")
+var_Y_increment <- c(r2_cumul[1], diff(r2_cumul[1:n_comp]))
+for (i in 1:n_comp) {
+  cat(sprintf("Comp %d : +%.4f (+%.2f%%)\n", i, var_Y_increment[i], var_Y_increment[i] * 100))
+}
+
+cat("\n=== FIN DE L'INTERPRÉTATION ===\n")
 
 ```
 
