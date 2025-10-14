@@ -93,6 +93,8 @@ var_explicatives <- bind_cols(
 
 ```{r}
 
+set.seed(123)
+
 # ACP réduite (variables centrées et réduites)
 acp <- prcomp(var_explicatives, scale. = TRUE, center = TRUE)
 
@@ -162,6 +164,8 @@ summary(modele_complet)
 
 ```{r}
 
+set.seed(123)
+
 Y <- treedensity
 Y_chapeau <- fitted(modele_complet)
 
@@ -196,6 +200,8 @@ cat("Corrélation entre Y et Ŷ :", round(correlation_YYchap, 3), "\n")
 
 ```{r}
 
+set.seed(123)
+
 # Coefficients des composantes dans le modèle (sans l'intercept)
 coef_composantes <- coef(modele_complet)[-1]
 print(coef_composantes)
@@ -204,8 +210,9 @@ print(coef_composantes)
 
 ```{r}
 
-# Matrice de rotation de l'ACP pour les 3 premières composantes
+set.seed(123)
 
+# Matrice de rotation de l'ACP pour les 3 premières composantes
 rotation_matrix <- acp$rotation[, 1:3]
 
 ```
@@ -215,6 +222,8 @@ Car Ŷ = β₁·PC1 + β₂·PC2 + β₃·PC3
 Et PCj = Σ(rotation[i,j] × X_i) donc on remplace
 
 ```{r}
+
+set.seed(123)
 
 # Calculer les coefficients des variables originelles
 coef_originels <- rotation_matrix %*% coef_composantes
@@ -626,6 +635,8 @@ data_pls <- data.frame(
 
 ```{r}
 
+set.seed(123)
+
 # Ajustement du modèle PLS
 pls_model <- plsr(treedensity_log ~ ., 
                   data = data_pls,
@@ -641,19 +652,40 @@ summary(pls_model)
 
 ```{r}
 
+set.seed(123)
+
 # Récupérer l'erreur de prédiction PRESS
 press_values <- pls_model$validation$PRESS[1, ]  # Extraire la première ligne
+
+par(mfrow = c(1, 2))
 
 # Tracer le PRESS en fonction du nombre de composantes
 plot(1:length(press_values), press_values, 
      type = "b", 
      xlab = "Nombre de composantes PLS", 
      ylab = "PRESS (erreur de prédiction)",
-     main = "Validation croisée - Sélection du nombre de composantes PLS",
      col = "darkblue", pch = 19)
 abline(v = 5, col = "pink3", lty = 2, lwd = 2)
-text(5, max(press_values)*0.9, "5 comp.", col = "pink3", pos = 4)
+abline(h = press_values[5], col = "pink3", lty = 2, lwd = 1)
+text(5, max(press_values)*0.91, "PRESS = 155.057", col = "pink3", pos = 4)
 grid()
+
+# Tracer le R2 en fonction du nombre de composantes
+r2_values <- R2(pls_model, estimate = "CV")$val[1, 1, ]
+plot(1:length(r2_values), r2_values,
+     type = "b",
+     xlab = "Nombre de composantes PLS",
+     ylab = "R² de Y (validation croisée)",
+     col = "darkgreen", pch = 19)
+abline(v = 5, col = "pink3", lty = 2, lwd = 2)
+abline(h = r2_values[5], col = "pink3", lty = 2, lwd = 1)
+text(5, max(r2_values[5])*0.9, paste0("R² = 0.320"), pos = 4, col = "pink3")
+grid()
+
+mtext("Validation croisée : PRESS et R² selon le nombre de composantes",
+      outer = TRUE, cex = 1.2, line = -2, font = 2)
+
+par(mfrow = c(1, 1))
 
 # Nombre de composantes optimales (cross-validation)
 ncomp_auto <- which.min(press_values)
@@ -682,7 +714,10 @@ for (i in 1:length(diff_press)) {
 ✅ Cela limite le sur-ajustement
 ✅ C'est justifiable pour un prof pointilleux : "critère du coude"
 
+
 ```{r}
+
+set.seed(123)
 
 # Réajuster le modèle avec le nombre optimal de composantes
 pls_model_final <- plsr(treedensity_log ~ ., 
@@ -703,16 +738,31 @@ cat("R² :", round(r2_pls_cv, 4), "\n")
 
 ```
 
-La validation croisée (10-fold) suggère un nombre optimal de 20 composantes pour minimiser le critère PRESS. Cependant, ce choix nous semble excessif et présente un risque évident de sur-ajustement : utiliser 20 composantes sur 60 variables explicatives représente un tiers des variables, ce qui va à l'encontre du principe de parcimonie. De plus, nous pouvons voir que, pour le press, il y a un minimum local atteit, puis ça remonte et ensuite ça resdecend donc surajustement visiblE. De meêm pour le r^2 qui augmnter pour se stabilier et re augmenter par la suite.
+```{r}
 
-En observant lesvaleurs obtenues, nous constatons que :
+# Redéfinir Y_pred_pls pour la cohérence avec la section export
+Y_pred_pls <- pls_model_final$validation$pred[, , ncomp]
 
-Le R² augmente rapidement jusqu'à environ 5 composantes, où il atteint approximativement 0.36, puis se stabilise progressivement. L'augmentation devient très marginale au-delà de ce seuil.
-Le PRESS diminue fortement jusqu'à 5 composantes (environ 154.5), puis continue à décroître très lentement. La différence entre 5 et 6 puis avec 20 composantes est faible au regard de la complexité ajoutée.
-Au-delà de 5 composantes, le gain en termes de qualité de prédiction ne justifie plus l'augmentation de la complexité du modèle.
+# Graphique Y vs Ŷ pour PLS (avant la section PNG)
+plot(treedensity_log, Y_pred_pls,
+     xlab = "log(Densité + 1) observé",
+     ylab = "log(Densité + 1) prédit",
+     main = paste0("PLS (5 comp.)\nR² = ", round(r2_pls_cv, 3)),
+     pch = 20,
+     col = rgb(0.6, 0, 0.6, 0.5))
 
-Ainsi, nous retenons 5 composantes pour notre modèle PLS final.
-Cette décision repose sur un compromis entre qualité d'ajustement et parcimonie : 5 composantes permettent de capturer l'essentiel de l'information pertinente pour prédire la densité, tout en maintenant un modèle suffisamment simple et interprétable.
+abline(a = 0, b = 1, col = "red", lwd = 2)
+abline(lm(Y_pred_pls ~ treedensity_log), col = "purple", lty = 2, lwd = 2)
+
+legend("topleft",
+       legend = c("Droite identité (y=x)", "Droite de régression"),
+       col = c("red", "purple"),
+       lty = c(1, 2),
+       lwd = 2,
+       cex = 0.8)
+
+```
+
 
 *b) Tenter au mieux d'interpréter les composantes retenues, et les plans qu'elles engendrent, exactement comme pour une ACP réduite.*
 
@@ -877,8 +927,6 @@ comparaison_performance <- data.frame(
 )
 
 print(comparaison_performance)
-
-print(coef_pls_df)
 
 ```
 
@@ -1200,7 +1248,7 @@ png("graph_RCP_themes.png", width = largeur, height = hauteur, res = resolution)
 plot(treedensity_log, fitted(modele_themes), 
      xlab = "log(Densité + 1) observé", 
      ylab = "log(Densité + 1) prédit",
-     main = paste0("RCP thèmes (6 comp.)\nR² = ", round(summary(modele_themes)$r.squared, 3)),
+     main = paste0("RCP thèmes (5 comp.)\nR² = ", round(summary(modele_themes)$r.squared, 3)),
      pch = 20, 
      col = couleur_rcp_themes,
      cex.main = 1.2,
@@ -1217,16 +1265,16 @@ dev.off()
 
 # 3. PLS
 png("graph_PLS.png", width = largeur, height = hauteur, res = resolution)
-plot(Y, Y_pred_pls,
+plot(treedensity_log, Y_pred_pls,
      xlab = "log(Densité + 1) observé",
      ylab = "log(Densité + 1) prédit",
-     main = paste0("PLS (6 comp.)\nR² = ", round(r2_pls, 3)),
+     main = paste0("PLS (5 comp.)\nR² = ", round(r2_pls_cv, 3)),
      pch = 20, 
      col = couleur_pls,
      cex.main = 1.2,
      cex.lab = 1.1)
 abline(a = 0, b = 1, col = "red", lwd = 2)
-abline(lm(Y_pred_pls ~ Y), col = "purple", lty = 2, lwd = 2)
+abline(lm(Y_pred_pls ~ treedensity_log), col = "purple", lty = 2, lwd = 2)
 legend("topleft",
        legend = c("Droite identité (y=x)", "Droite de régression"),
        col = c("red", "purple"),
