@@ -46,12 +46,13 @@ install.packages(c("ade4", "pls", "glmnet", "FactoMineR", "factoextra", "ClustOf
 ```
 .
 ├── README.md
-├── Datagenus.csv              # données pour l'analyse
 ├── Analyse_multivariée.Rmd    # fichier de code qui effectue toutes les analyses
-├── codes/                     # codes de test pour les analyses
+├── codes_archives/            # codes de test pour les analyses
 │   ├── TP1_Regressions_regularisees.R
 │   ├── Test Q4.Rmd
-│   └── DM1.R                  
+│   └── DM1.R  
+├── Consignes.pdf              # consignes données pour ce devoir
+├── Datagenus.csv              # données pour l'analyse                
 └── figures/                   # dossier contenant les graphiques générés
     └── ...
 ```
