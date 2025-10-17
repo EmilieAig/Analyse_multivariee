@@ -825,7 +825,7 @@ plot_cercle_pls <- function(correlations, comp1, comp2, Xvar) {
   plot(0, 0, xlim = c(-1, 1), ylim = c(-1, 1),
        xlab = paste0("PLS", comp1, " (", var1, "% var X)"),
        ylab = paste0("PLS", comp2, " (", var2, "% var X)"),
-       main = paste("Cercle de corrélation PLS - Plan", comp1, "-", comp2),
+       main = paste("Cercle de corrélation PLS - Composantes", comp1, "-", comp2),
        type = "n", asp = 1)
   
   # Cercle unité + axes
@@ -1074,11 +1074,11 @@ cat("Lambda 1se :", lambda_1se_ridge, "\n")
 # Graphiques de validation croisée
 
 plot(cv_ridge, col = "black", main = "Validation croisée Ridge")
-abline(v = log(lambda_optimal_ridge), col = "red", lty = 2, lwd = 2)
-abline(v = log(lambda_1se_ridge), col = "blue", lty = 2, lwd = 2)
+abline(v = log(lambda_optimal_ridge), col = "purple", lty = 2, lwd = 2)
+abline(v = log(lambda_1se_ridge), col = "blue3", lty = 2, lwd = 2)
 legend("topright", 
-       legend = c("lambda.min", "lambda.1se"),
-       col = c("red", "blue"),
+       legend = c("lambda_min", "lambda_1se"),
+       col = c("purple", "blue3"),
        lty = 2,
        cex = 0.8)
 
@@ -1127,6 +1127,21 @@ coef_ridge_df <- coef_ridge_df[order(abs(coef_ridge_df$Coefficient), decreasing 
 print(coef_ridge_df)
 
 ```
+
+```{r}
+
+plot(cv_ridge, col = "black", main = "Validation croisée Ridge", type = "l")
+abline(v = log(lambda_optimal_ridge), col = "purple", lty = 2, lwd = 2)
+abline(v = log(lambda_1se_ridge), col = "blue3", lty = 2, lwd = 2)
+legend("topright", 
+       legend = c("lambda_min", "lambda_1se"),
+       col = c("purple", "blue3"),
+       lty = 2,
+       lwd = 2,
+       cex = 0.8)
+
+```
+
 
 *b) Utiliser la régression LASSO (package glmnet) pour modéliser au mieux la densité (ou sa transformation). Vous déterminerez le poids optimal de la pénalité par validation croisée.*
 
@@ -1184,14 +1199,14 @@ plot(Y_vector, Y_pred_lasso,
      ylab = "log(Densité + 1) prédit",
      main = paste0("Modèle LASSO (", nb_nonzero, " variables)\nR² = ", round(r2_lasso, 3)),
      pch = 20,
-     col = rgb(0, 0.6, 0.4, 0.5))
+     col = rgb(1.0, 0.55, 0.75, 0.5))
 
 abline(a = 0, b = 1, col = "red", lwd = 2)
-abline(lm(Y_pred_lasso ~ Y_vector), col = "darkgreen", lty = 2, lwd = 2)
+abline(lm(Y_pred_lasso ~ Y_vector), col = "pink3", lty = 2, lwd = 2)
 
 legend("topleft",
        legend = c("Droite identité (y=x)", "Droite de régression"),
-       col = c("red", "darkgreen"),
+       col = c("red", "pink3"),
        lty = c(1, 2),
        lwd = 2,
        cex = 0.8)
@@ -1217,14 +1232,14 @@ hauteur <- 600
 resolution <- 120
 
 # Couleurs pour chaque méthode
-couleur_rcp_globale <- rgb(0, 0, 1, 0.5)          # Bleu
+couleur_rcp_globale <- rgb(0.0, 0.6, 0.4, 0.5)    # Vert
 couleur_rcp_themes <- rgb(0.8, 0.2, 0, 0.5)       # Orange
 couleur_pls <- rgb(0.6, 0, 0.6, 0.5)              # Violet
 couleur_ridge <- rgb(0.8, 0.4, 0, 0.5)            # Orange foncé
-couleur_lasso <- rgb(0, 0.6, 0.4, 0.5)            # Vert-bleu
+couleur_lasso <- rgb(1.0, 0.55, 0.75, 0.5)        # Rose
 
 # 1. RCP globale (avec transformation log)
-png("regression_acp.png", width = largeur, height = hauteur, res = resolution)
+png("graph_RCP_globale.png", width = largeur, height = hauteur, res = resolution)
 plot(treedensity_log, fitted(modele_log), 
      xlab = "log(Densité + 1) observé", 
      ylab = "log(Densité + 1) prédit",
@@ -1234,10 +1249,10 @@ plot(treedensity_log, fitted(modele_log),
      cex.main = 1.2,
      cex.lab = 1.1)
 abline(a = 0, b = 1, col = "red", lwd = 2)
-abline(lm(fitted(modele_log) ~ treedensity_log), col = "blue", lty = 2, lwd = 2)
+abline(lm(fitted(modele_log) ~ treedensity_log), col = "green3", lty = 2, lwd = 2)
 legend("topleft",
        legend = c("Droite identité (y=x)", "Droite de régression"),
-       col = c("red", "blue"),
+       col = c("red", "green3"),
        lty = c(1, 2),
        lwd = 2,
        cex = 0.9)
@@ -1314,10 +1329,10 @@ plot(Y_vector, Y_pred_lasso,
      cex.main = 1.2,
      cex.lab = 1.1)
 abline(a = 0, b = 1, col = "red", lwd = 2)
-abline(lm(Y_pred_lasso ~ Y_vector), col = "darkgreen", lty = 2, lwd = 2)
+abline(lm(Y_pred_lasso ~ Y_vector), col = "pink3", lty = 2, lwd = 2)
 legend("topleft",
        legend = c("Droite identité (y=x)", "Droite de régression"),
-       col = c("red", "darkgreen"),
+       col = c("red", "pink3"),
        lty = c(1, 2),
        lwd = 2,
        cex = 0.9)
