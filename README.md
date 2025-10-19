@@ -63,7 +63,7 @@ git clone [https://github.com/EmilieAig/Analyse_multivariee]
 cd Analyse_multivariee
 ```
 
-3. Exécuter les scripts dans l'ordre (Q1 à Q6)
+2. Exécuter les scripts dans l'ordre (Q1 à Q6)
 
 ## Auteurs
 
