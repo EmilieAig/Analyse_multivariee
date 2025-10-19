@@ -15,13 +15,13 @@ Comparer différentes techniques de régression pour prédire la densité arbor�
 
 ## Données
 
-Les données proviennent du projet **CoForTips** et comprennent 1000 parcelles forestières du bassin du Congo avec :
+Les données proviennent du projet **CoForTips** et comprennent 1000 parcelles forestières du bassin du fleuve Congo avec :
 
 ### Variables explicatives
 - **Variables géographiques** : latitude, longitude, altitude
 - **Variables climatiques** : pluviométries annuelle et mensuelles
 - **Variables qualitatives** : geology (type de sol)
-- **Indices de photosynthèse** : 23 indices EVI (Enhanced Vegetation Index)
+- **Indices de photosynthèse** : 23 indices EVI
 
 ### Variable à prédire
 - **Densité arborée** : somme des abondances des 27 espèces (gen1 à gen27) divisée par la surface de la parcelle
@@ -76,6 +76,6 @@ Année universitaire 2024-2025
 ## Références
 
 - Cours d'Analyse Multivariée - X. Bry
-- Projet CoForTips - Données du bassin du Congo
+- Projet CoForTips - Données du bassin du fleuve Congo
 - Documentation R : [CRAN](https://cran.r-project.org/)
 
