@@ -29,16 +29,14 @@ Les données proviennent du projet **CoForTips** et comprennent 1000 parcelles f
 ## Packages R
 
 ### Packages utilisés
-- `ade4` : manipulation de données et tableaux disjonctifs
-- `pls` : régression PLS
-- `glmnet` : régressions Ridge et LASSO
 - `FactoMineR` : Analyses en Composantes Principales
 - `factoextra` : visualisations graphiques
-- `ClustOfVar` : classification de variables (optionnel)
+- `pls` : régression PLS
+- `glmnet` : régressions Ridge et LASSO
 
 ### Installation
 ```r
-install.packages(c("ade4", "pls", "glmnet", "FactoMineR", "factoextra", "ClustOfVar"))
+install.packages(c("FactoMineR", "factoextra", "pls", "glmnet"))
 ```
 
 ## Structure du projet
