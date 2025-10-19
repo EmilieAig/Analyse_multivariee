@@ -55,7 +55,7 @@ install.packages(c("FactoMineR", "factoextra", "pls", "glmnet"))
     └── ...
 ```
 
-## 🚀 Utilisation
+## Utilisation
 
 1. Cloner le dépôt :
 ```bash
